@@ -30,8 +30,14 @@ git subtree add   --prefix=<prefix> <commit>
 git subtree add   --prefix=<prefix> <repository> <ref>
 git subtree merge --prefix=<prefix> <commit>
 git subtree split --prefix=<prefix> [<commit>]
-git subtree pull  --prefix=<prefix> <repository> <ref>
-git subtree push  --prefix=<prefix> <repository> <refspec>
+git subtree pull  --prefix=<prefix> [[<repository>] <ref>]
+git subtree pull-all
+git subtree push  --prefix=<prefix> [[<repository>] <refspec>]
+git subtree push-all
+git subtree list
+git subtree from-submodule --prefix=<prefix>
+git subtree prune
+git subtree diff  --prefix=<prefix> [[<repository>] <ref>]
 --
 h,help        show the help
 q             quiet
@@ -46,6 +52,8 @@ rejoin        merge the new branch back into HEAD
  options for 'add' and 'merge' (also: 'pull', 'split --rejoin', and 'push --rejoin')
 squash        merge subtree changes as a single commit
 m,message=    use the given message as the commit message for the merge commit
+ options for 'push'
+f,force	      use force push
 "
 
 indent=0
@@ -110,6 +118,7 @@ main () {
 	arg_split_rejoin=
 	allow_split=
 	allow_addmerge=
+	allow_force=
 	while test $# -gt 0
 	do
 		opt="$1"
@@ -138,8 +147,15 @@ main () {
 		allow_split=1
 		allow_addmerge=$arg_split_rejoin
 		;;
+	pull-all|push-all|list|from-submodule|prune|diff)
+		;;
 	*)
 		die "Unknown command '$arg_command'"
+		;;
+	esac
+	case "$arg_command" in
+	push|push-all)
+		allow_force=1
 		;;
 	esac
 	# Reset the arguments array for "real" flag parsing.
@@ -154,6 +170,7 @@ main () {
 	arg_split_annotate=
 	arg_addmerge_squash=
 	arg_addmerge_message=
+	arg_force=
 	while test $# -gt 0
 	do
 		opt="$1"
@@ -188,6 +205,10 @@ main () {
 			test -n "$allow_addmerge" || die "The '$opt' flag does not make sense with 'git subtree $arg_command'."
 			arg_addmerge_message="$1"
 			shift
+			;;
+		-f)
+			test -n "$allow_force" || die "The '$opt' flag does not make sense with 'git subtree $arg_command'."
+			arg_force=1
 			;;
 		--no-prefix)
 			arg_prefix=
@@ -233,19 +254,24 @@ main () {
 	done
 	shift
 
-	if test -z "$arg_prefix"
-	then
-		die "You must provide the --prefix option."
-	fi
-
 	case "$arg_command" in
-	add)
-		test -e "$arg_prefix" &&
-			die "prefix '$arg_prefix' already exists."
+	pull-all|push-all|list|prune)
 		;;
+
 	*)
-		test -e "$arg_prefix" ||
-			die "'$arg_prefix' does not exist; use 'git subtree add'"
+		if test -z "$arg_prefix"
+		then
+			die "You must provide the --prefix option."
+		fi
+
+		if [[ $arg_command == "add" ]]
+		then
+			test -e "$arg_prefix" &&
+				die "prefix '$arg_prefix' already exists."
+		else
+			test -e "$arg_prefix" ||
+				die "'$arg_prefix' does not exist; use 'git subtree add'"
+		fi
 		;;
 	esac
 
@@ -257,7 +283,7 @@ main () {
 	debug "opts: {$*}"
 	debug
 
-	"cmd_$arg_command" "$@"
+	"cmd_${arg_command/-/_}" "$@"
 }
 
 # Usage: cache_setup
@@ -815,6 +841,14 @@ cmd_add_repository () {
 	refspec=$2
 	git fetch "$@" || exit $?
 	cmd_add_commit FETCH_HEAD
+
+	# now add it to our list of repos
+	git config -f .gittrees --unset subtree.$dir.url
+	git config -f .gittrees --add subtree.$dir.url $repository
+	git config -f .gittrees --unset subtree.$dir.path
+	git config -f .gittrees --add subtree.$dir.path $dir
+	git config -f .gittrees --unset subtree.$dir.branch
+	git config -f .gittrees --add subtree.$dir.branch $refspec
 }
 
 # Usage: cmd_add_commit REV
@@ -982,28 +1016,53 @@ cmd_merge () {
 	fi
 }
 
-# Usage: cmd_pull REPOSITORY REMOTEREF
-cmd_pull () {
-	if test $# -ne 2
+# Usage: cmd_pull [REPOSITORY [REMOTEREF]]
+cmd_pull()
+{
+	if test $# -gt 2
 	then
-		die "You must provide <repository> <ref>"
+		die "You should provide either <repository> <ref> or <ref>"
 	fi
 	ensure_clean
-	ensure_valid_ref_format "$2"
-	git fetch "$@" || exit $?
+	if test $# -eq 2
+	then
+		repository=$1
+		refspec=$2
+		ensure_valid_ref_format "$refspec"
+	elif test $# -eq 1
+	then
+		repository=$(git config -f .gittrees subtree.$prefix.url)
+		refspec=$1
+	else
+		repository=$(git config -f .gittrees subtree.$prefix.url)
+		refspec=$(git config -f .gittrees subtree.$prefix.branch)
+	fi
+	git fetch "$repository" "$refspec" || exit $?
+	echo "git fetch using: " "$repository" "$refspec"
 	cmd_merge FETCH_HEAD
 }
 
-# Usage: cmd_push REPOSITORY [+][LOCALREV:]REMOTEREF
+# Usage: cmd_push [[REPOSITORY] [+][LOCALREV:]REMOTEREF]
 cmd_push () {
-	if test $# -ne 2
+	if test $# -gt 2
 	then
-		die "You must provide <repository> <refspec>"
+		die "You shold provide either <repository> <refspec> or <refspec>"
 	fi
 	if test -e "$dir"
 	then
-		repository=$1
-		refspec=${2#+}
+		if test $# -eq 2
+		then
+			repository=$1
+			refspec=${2#+}
+		elif test $# -eq 1
+		then
+			repository=$(git config -f .gittrees subtree.$prefix.url)
+			refspec=${1#+}
+		else
+			repository=$(git config -f .gittrees subtree.$prefix.url)
+			refspec=$(git config -f .gittrees subtree.$prefix.branch)
+		fi
+
 		remoteref=${refspec#*:}
 		if test "$remoteref" = "$refspec"
 		then
@@ -1015,12 +1074,130 @@ cmd_push () {
 		localrev_presplit=$(git rev-parse -q --verify "$localrevname_presplit^{commit}") ||
 			die "'$localrevname_presplit' does not refer to a commit"
 
+		push_opts=
+		if test -n "$arg_force"
+		then
+			push_opts="$push_opts --force"
+		fi
+
 		echo "git push using: " "$repository" "$refspec"
 		localrev=$(cmd_split "$localrev_presplit") || die
-		git push "$repository" "$localrev":"refs/heads/$remoteref"
+		git push "$push_opts" "$repository" "$localrev":"refs/heads/$remoteref"
 	else
 		die "'$dir' must already exist. Try 'git subtree add'."
 	fi
+}
+
+# Usage: cmd_diff [REPOSITORY [REMOTEREF]]
+cmd_diff()
+{
+	if [ -e "$dir" ]; then
+		if [ $# -eq 1 ]; then
+			repository=$(git config -f .gittrees subtree.$prefix.url)
+			refspec=$1
+		elif [ $# -eq 2 ]; then
+			repository=$1
+			refspec=$2
+		else
+			repository=$(git config -f .gittrees subtree.$prefix.url)
+			refspec=$(git config -f .gittrees subtree.$prefix.branch)
+		fi
+		# this is ugly, but I don't know of a better way to do it. My git-fu is weak.
+		# git diff-tree expects a treeish, but I have only a repository and branch name.
+		# I don't know how to turn that into a treeish without creating a remote.
+		# Please change this if you know a better way!
+		tmp_remote=__diff-tmp
+		git remote rm $tmp_remote > /dev/null 2>&1
+		git remote add -t $refspec $tmp_remote $repository > /dev/null
+		# we fetch as a separate step so we can pass -q (quiet), which isn't an option for "git remote"
+		# could this instead be "git fetch -q $repository $refspec" and leave aside creating the remote?
+		# Still need a treeish for the diff-tree command...
+		git fetch -q $tmp_remote
+		git diff-tree -p refs/remotes/$tmp_remote/$refspec
+		git remote rm $tmp_remote > /dev/null 2>&1
+	else
+		die "Cannot resolve directory '$dir'. Please point to an existing subtree directory to diff. Try 'git subtree add' to add a subtree."
+	fi
+}
+
+subtree_list()
+{
+	git config -f .gittrees -l | grep subtree | grep path | grep -o '=.*' | grep -o '[^=].*' |
+	while read path; do
+		repository=$(git config -f .gittrees subtree.$path.url)
+		refspec=$(git config -f .gittrees subtree.$path.branch)
+		echo "	$path		(merged from $repository branch $refspec) "
+	done
+}
+
+# Usage: cmd_list
+cmd_list()
+{
+	subtree_list
+}
+
+# Usage: cmd_from_submodule
+cmd_from_submodule()
+{
+	ensure_clean
+
+	local submodule_sha=$(git submodule status $prefix | cut -d ' ' -f 2)
+	local submodule_orig_repo=$(git config --file .gitmodules submodule.$prefix.url)
+
+	# Remove references to submodule.
+	git config --remove-section submodule.$prefix
+	git config --file .gitmodules --remove-section submodule.$prefix
+	git add .gitmodules
+
+	# Move submodule aside.
+	local tmp_repo="$(mktemp -d /tmp/git-subtree.XXXXX)"
+	rm -r $tmp_repo
+	mv $prefix $tmp_repo
+	git rm $prefix
+
+	# Commit changes.
+	git commit -m "Remove '$prefix/' submodule"
+
+	# subtree add from submodule repo.
+	# TODO: Could be determin HEAD to be a specific branch
+	cmd_add_repository $tmp_repo HEAD
+
+	# Update .gittrees with the original repo url
+	git config --file .gittrees --unset subtree.$prefix.url
+	git config --file .gittrees subtree.$prefix.url $submodule_orig_repo
+
+	# Remove submodule repo.
+	rm -rf $tmp_repo
+}
+
+# Usage: cmd_prune
+cmd_prune()
+{
+	git config -f .gittrees -l | grep subtree | grep path | grep -o '=.*' | grep -o '[^=].*' |
+	while read path; do
+		if [ ! -e "$path" ]; then
+			echo "pruning $path"
+			git config -f .gittrees --remove-section subtree.$path
+		fi
+	done
+}
+
+# Usage: cmd_pull_all
+cmd_pull_all()
+{
+	git config -f .gittrees -l | grep subtree | grep path | grep -o '=.*' | grep -o '[^=].*' |
+	while read path; do
+		git subtree pull -P $path $(git config -f .gittrees subtree.$path.url) $(git config -f .gittrees subtree.$path.branch) || exit $?
+	done
+}
+
+# Usage: cmd_push_all
+cmd_push_all()
+{
+	git config -f .gittrees -l | grep subtree | grep path | grep -o '=.*' | grep -o '[^=].*' |
+	while read path; do
+		git subtree push -P $path $(git config -f .gittrees subtree.$path.url) $(git config -f .gittrees subtree.$path.branch) || exit $?
+	done
 }
 
 main "$@"

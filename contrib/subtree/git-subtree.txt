@@ -15,8 +15,14 @@ SYNOPSIS
 'git subtree' [<options>] -P <prefix> split [<local-commit>]
 
 [verse]
-'git subtree' [<options>] -P <prefix> pull <repository> <remote-ref>
-'git subtree' [<options>] -P <prefix> push <repository> <refspec>
+'git subtree' [<options>] -P <prefix> pull [[<repository>] <remote-ref>]
+'git subtree' [<options>] pull-all
+'git subtree' [<options>] -P <prefix> push [[<repository>] <refspec>]
+'git subtree' [<options>] push-all
+'git subtree' [<options>] list
+'git subtree' [<options>] -P <prefix> from-submodule
+'git subtree' [<options>] prune
+'git subtree' [<options>] -P <prefix> diff [[<repository>] <remote-ref>]
 
 DESCRIPTION
 -----------
@@ -115,6 +121,9 @@ pull <repository> <remote-ref>::
 	it fetches the given ref from the specified remote
 	repository.
 
+pull-all::
+	Perform a pull operation on all in .gittrees registered subtrees.
+
 push <repository> [+][<local-commit>:]<remote-ref>::
 	Does a 'split' using the <prefix> subtree of <local-commit>
 	and then does a 'git push' to push the result to the
@@ -122,6 +131,23 @@ push <repository> [+][<local-commit>:]<remote-ref>::
 	subtree to different branches of the remote repository.  Just
 	as with 'split', if no <local-commit> is given, then HEAD is
 	used.  The optional leading '+' is ignored.
+
+push-all::
+	Perform a pull operation on all in .gittrees registered subtrees.
+
+list::
+	Show a list of the in .gittrees registered subtrees
+
+from-submodule::
+	Convert a git submodule to a subtree.
+	The module is removed from the .gitmodules file and
+	the repo contents are integrated as a subtree.
+
+prune::
+	Cleanup .gittrees entries for which the subtree nolonger exists.
+
+diff::
+	TO BE DOCUMENTED
 
 OPTIONS FOR ALL COMMANDS
 ------------------------
@@ -231,6 +257,11 @@ synthetic one).
 If you do all your merges with '--squash', make sure you also use
 '--squash' when you 'split --rejoin'.
 
+OPTIONS FOR 'push' AND 'push-all'
+------------------
+-f::
+--force::
+	Uses 'git push --force'.
 
 EXAMPLE 1. 'add' command
 ------------------------

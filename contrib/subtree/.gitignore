@@ -5,3 +5,6 @@ git-subtree.html
 git-subtree.xml
 mainline
 subproj
+submodule*
+launchpad
+.gittrees
