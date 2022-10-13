@@ -162,8 +162,6 @@ For shell scripts specifically (not exhaustive):
 
    - We do not use \{m,n\};
 
-   - We do not use -E;
-
    - We do not use ? or + (which are \{0,1\} and \{1,\}
      respectively in BRE) but that goes without saying as these
      are ERE elements not BRE (note that \? and \+ are not even part
@@ -606,7 +604,7 @@ Writing Documentation:
     avoidance of gendered pronouns.
 
   - When it becomes awkward to stick to this style, prefer "you" when
-    addressing the the hypothetical user, and possibly "we" when
+    addressing the hypothetical user, and possibly "we" when
     discussing how the program might react to the user.  E.g.
 
       You can use this option instead of --xyz, but we might remove
